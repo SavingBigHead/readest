@@ -48,7 +48,7 @@ export const getUserProfilePlan = (token: string): UserPlan => {
 export const EMAIL_IN_PLANS: readonly UserPlan[] = ['plus', 'pro', 'purchase'];
 
 export const isEmailInPlan = (plan: UserPlan, customizationPurchased: boolean): boolean =>
-  isCustomizationAllowed(plan, customizationPurchased);
+  hasCustomizationEntitlement(plan, customizationPurchased);
 
 /**
  * Plans that include third-party cloud sync (WebDAV / Google Drive): any paid
@@ -184,8 +184,14 @@ export const isSelfHosted = (): boolean =>
  * The single gate for premium features: a self-hosted deployment, a paid
  * subscription, or the Full Customization unlock bought outright.
  */
-export const isCustomizationAllowed = (plan: UserPlan, customizationPurchased: boolean): boolean =>
+// Personal builds unlock device features, while official account claims remain untouched.
+const isPersonalEdition = (): boolean => process.env['NEXT_PUBLIC_PERSONAL_EDITION'] === 'true';
+
+const hasCustomizationEntitlement = (plan: UserPlan, customizationPurchased: boolean): boolean =>
   isSelfHosted() || customizationPurchased || PREMIUM_PLANS.includes(plan);
+
+export const isCustomizationAllowed = (plan: UserPlan, customizationPurchased: boolean): boolean =>
+  isPersonalEdition() || hasCustomizationEntitlement(plan, customizationPurchased);
 
 /**
  * Custom translators (the user's own OpenAI-compatible LLM or DeepL key) are a
@@ -194,9 +200,10 @@ export const isCustomizationAllowed = (plan: UserPlan, customizationPurchased: b
  * a reader window never sees a premium user as free while the plan loads.
  */
 export const isCustomTranslatorAllowed = (token: string | null | undefined): boolean =>
-  token
+  isPersonalEdition() ||
+  (token
     ? isCustomizationAllowed(getUserProfilePlan(token), getCustomizationPurchased(token))
-    : isSelfHosted();
+    : isSelfHosted());
 
 /**
  * Custom TTS services (the user's own OpenAI-compatible speech endpoint) are

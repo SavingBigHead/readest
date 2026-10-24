@@ -1,0 +1,332 @@
+name: Personal Readest releases
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 0,6,12,18 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'personal/**'
+      - '.github/workflows/personal-release.yml'
+      - 'apps/readest-app/src/utils/access.ts'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: personal-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.repository == 'SavingBigHead/readest'
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+      upstream_tag: ${{ steps.check.outputs.upstream_tag }}
+      release_tag: ${{ steps.check.outputs.release_tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v6
+        with:
+          node-version: 24
+      - name: Test release selection and personal access
+        run: node --experimental-vm-modules --test personal/tests/*.test.mjs
+      - name: Check latest official stable release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node personal/check-release.mjs
+
+  prepare:
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      upstream_sha: ${{ steps.metadata.outputs.upstream_sha }}
+      cef_cli_rev: ${{ steps.metadata.outputs.cef_cli_rev }}
+      ndk_version: ${{ steps.metadata.outputs.ndk_version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: readest/readest
+          ref: ${{ needs.check.outputs.upstream_tag }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - name: Apply personal patch to official release
+        env:
+          UPSTREAM_TAG: ${{ needs.check.outputs.upstream_tag }}
+        run: |
+          node personal/prepare.mjs source
+          cd source
+          node --experimental-vm-modules --test personal/tests/*.test.mjs
+      - name: Export pinned source and toolchain versions
+        id: metadata
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+            const data = JSON.parse(fs.readFileSync("source/personal/build.json", "utf8"));
+            for (const key of ["version", "upstream_sha", "cef_cli_rev", "ndk_version"])
+              fs.appendFileSync(process.env.GITHUB_OUTPUT, key + "=" + data[key] + "\n");
+          '
+      - name: Archive exact patched build source including submodules
+        env:
+          PERSONAL_VERSION: ${{ steps.metadata.outputs.version }}
+        run: |
+          mkdir -p dist-source
+          tar --exclude=.git --exclude=node_modules -czf "dist-source/Readest-Personal_${PERSONAL_VERSION}_source.tar.gz" -C source .
+          cp source/personal/build.json dist-source/build.json
+          cp source/apps/readest-app/release-notes.json dist-source/release-notes.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: personal-source
+          path: dist-source/*
+          retention-days: 14
+          if-no-files-found: error
+
+  verify:
+    needs: [check, prepare]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: readest/readest
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - name: Apply identical personal patch
+        env:
+          UPSTREAM_TAG: ${{ needs.check.outputs.upstream_tag }}
+        run: node personal/prepare.mjs source
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          package_json_file: source/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+      - name: Install and prepare vendors
+        working-directory: source
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter @readest/readest-app setup-vendors
+      - name: Run personal and upstream unit tests
+        working-directory: source
+        run: |
+          node --experimental-vm-modules --test personal/tests/*.test.mjs
+          pnpm test --run --maxWorkers=4
+      - name: Type check and lint
+        working-directory: source
+        run: pnpm lint
+
+  build:
+    needs: [check, prepare, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+          - platform: linux
+            os: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+          - platform: android
+            os: ubuntu-latest
+            rust_target: aarch64-linux-android
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    defaults:
+      run:
+        shell: bash
+    env:
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Check fixed signing configuration
+        env:
+          PERSONAL_TAURI_KEY: ${{ secrets.PERSONAL_TAURI_KEY }}
+          PERSONAL_TAURI_PASSWORD: ${{ secrets.PERSONAL_TAURI_PASSWORD }}
+          PERSONAL_ANDROID_KEYSTORE: ${{ secrets.PERSONAL_ANDROID_KEYSTORE }}
+          PERSONAL_ANDROID_PASSWORD: ${{ secrets.PERSONAL_ANDROID_PASSWORD }}
+        run: |
+          for key in PERSONAL_TAURI_KEY PERSONAL_TAURI_PASSWORD PERSONAL_ANDROID_KEYSTORE PERSONAL_ANDROID_PASSWORD; do
+            if [ -z "${!key}" ]; then
+              echo "::error::Configure repository variable/secret $key before the first build."
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: readest/readest
+          ref: ${{ needs.prepare.outputs.upstream_sha }}
+          path: source
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - name: Apply identical personal patch
+        env:
+          UPSTREAM_TAG: ${{ needs.check.outputs.upstream_tag }}
+        run: node personal/prepare.mjs source
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          package_json_file: source/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: source/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          targets: ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16
+        with:
+          workspaces: source -> target
+          key: personal-${{ matrix.platform }}
+      - name: Install Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad
+        with:
+          distribution: zulu
+          java-version: '17'
+      - name: Install Android SDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd
+        with:
+          packages: platform-tools
+      - name: Install matching NDK
+        if: matrix.platform == 'android'
+        env:
+          NDK_VERSION: ${{ needs.prepare.outputs.ndk_version }}
+        run: |
+          sdkmanager "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Install Linux dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig-dev libgtk-3-dev libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils libnss3 libpulse0 libspeechd2 libxkbcommon-x11-0
+      - name: Install matching Linux CEF bundler
+        if: matrix.platform == 'linux'
+        env:
+          CEF_REV: ${{ needs.prepare.outputs.cef_cli_rev }}
+        run: |
+          marker="$HOME/.cargo/bin/.personal-tauri-rev"
+          if [ ! -x "$HOME/.cargo/bin/cargo-tauri" ] || [ "$(cat "$marker" 2>/dev/null)" != "$CEF_REV" ]; then
+            cargo install tauri-cli --git https://github.com/readest/tauri --rev "$CEF_REV" --locked --force
+            echo "$CEF_REV" > "$marker"
+          fi
+      - name: Stage Linux CEF runtime libraries
+        if: matrix.platform == 'linux'
+        run: |
+          nss_dir=$(dirname "$(ls /usr/lib/*-linux-gnu/nss/libsoftokn3.so)")
+          lib_dir=${nss_dir%/nss}
+          sudo cp -f --remove-destination "$nss_dir"/*.so "$lib_dir/"
+          conf=source/apps/readest-app/src-tauri/tauri.conf.json
+          jq --arg d "$lib_dir" '.bundle.linux.appimage.files += {
+            "/usr/lib/libspeechd.so.2": ($d + "/libspeechd.so.2"),
+            "/usr/lib/libxkbcommon-x11.so.0": ($d + "/libxkbcommon-x11.so.0")
+          }' "$conf" > "$conf.tmp"
+          mv "$conf.tmp" "$conf"
+      - name: Install frontend dependencies and vendors
+        working-directory: source
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+          pnpm --filter @readest/readest-app setup-vendors
+      - name: Build Windows installer
+        if: matrix.platform == 'windows'
+        working-directory: source/apps/readest-app
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PERSONAL_TAURI_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.PERSONAL_TAURI_PASSWORD }}
+        run: pnpm tauri build --target x86_64-pc-windows-msvc --bundles nsis --config ../../personal/desktop.conf.json
+      - name: Build Linux AppImage and deb
+        if: matrix.platform == 'linux'
+        working-directory: source/apps/readest-app
+        env:
+          TAURI_CEF_CARGO: '1'
+          STRACE_MODE: '0'
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PERSONAL_TAURI_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.PERSONAL_TAURI_PASSWORD }}
+        run: pnpm tauri build --bundles appimage,deb --config ../../personal/desktop.conf.json
+      - name: Verify Linux AppImage dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          appdir=$(find source/target/release/bundle/appimage -maxdepth 1 -type d -name '*.AppDir' -print -quit)
+          test -n "$appdir"
+          for so in libsoftokn3.so libfreeblpriv3.so libnssckbi.so libsqlite3.so.0 libpulse.so.0 libspeechd.so.2 libxkbcommon-x11.so.0; do
+            test -e "$appdir/lib/$so" || { echo "::error::Missing AppImage library $so"; exit 1; }
+          done
+          ls "$appdir/lib"/pulseaudio/libpulsecommon-*.so > /dev/null
+          grep -qx '+/pulseaudio' "$appdir/lib/lib.path"
+          test -e "$appdir/bin/00-no-userns-prompt.hook"
+      - name: Build and sign Android APK
+        if: matrix.platform == 'android'
+        working-directory: source/apps/readest-app
+        env:
+          PERSONAL_VERSION: ${{ needs.prepare.outputs.version }}
+          PERSONAL_ANDROID_KEYSTORE: ${{ secrets.PERSONAL_ANDROID_KEYSTORE }}
+          PERSONAL_ANDROID_PASSWORD: ${{ secrets.PERSONAL_ANDROID_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.PERSONAL_TAURI_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.PERSONAL_TAURI_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.PERSONAL_TAURI_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.PERSONAL_TAURI_PASSWORD }}
+        run: |
+          rm -rf src-tauri/gen/android
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+          # Restore only native customizations; keep the access patch and personal config.
+          git restore -- src-tauri/gen/android
+          node ../../personal/configure-android.mjs .
+          pnpm tauri android build -t aarch64
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          apk="$GITHUB_WORKSPACE/dist/Readest-Personal_${PERSONAL_VERSION}_android-arm64.apk"
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "$apk"
+          pnpm tauri signer sign "$apk"
+      - name: Stage desktop installers and signatures
+        if: matrix.platform != 'android'
+        env:
+          PLATFORM: ${{ matrix.platform }}
+        run: node personal/stage-artifacts.mjs "$PLATFORM" source dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: personal-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [check, prepare, verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: personal-*
+          path: dist
+          merge-multiple: true
+      - name: Publish only after all three platforms and checks succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node personal/publish.mjs dist
