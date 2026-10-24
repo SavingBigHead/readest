@@ -3,7 +3,7 @@ name: Personal Readest releases
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 0,6,12,18 * * *'
+    - cron: '17 0 * * *'
   push:
     branches: [main]
     paths:
@@ -19,8 +19,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check:
+  cadence:
     if: github.repository == 'SavingBigHead/readest'
+    runs-on: ubuntu-latest
+    outputs:
+      due: ${{ steps.cadence.outputs.due }}
+    steps:
+      - name: Run scheduled release checks every 72 hours
+        id: cadence
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          # Daily wake-up plus epoch arithmetic avoids month-boundary cron resets.
+          day=$(( $(date -u +%s) / 86400 ))
+          anchor=$(( $(date -u -d '2026-10-25' +%s) / 86400 ))
+          if [[ "$EVENT_NAME" != schedule ]] || (( (day - anchor) % 3 == 0 )); then
+            echo 'due=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'due=false' >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    needs: cadence
+    if: needs.cadence.outputs.due == 'true'
     runs-on: ubuntu-latest
     outputs:
       build: ${{ steps.check.outputs.build }}
