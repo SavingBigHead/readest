@@ -325,6 +325,15 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
         run: node personal/stage-artifacts.mjs "$PLATFORM" source dist
+      - name: Package and verify Arch Linux installer
+        if: matrix.platform == 'linux'
+        run: |
+          node personal/prepare-arch.mjs source dist "$RUNNER_TEMP/arch-package"
+          docker run --rm \
+            -v "$RUNNER_TEMP/arch-package:/build" \
+            -v "$GITHUB_WORKSPACE/personal:/scripts:ro" \
+            archlinux:base-devel bash /scripts/arch/build.sh
+          cp "$RUNNER_TEMP/arch-package/"*.pkg.tar.zst dist/
       - uses: actions/upload-artifact@v4
         with:
           name: personal-${{ matrix.platform }}

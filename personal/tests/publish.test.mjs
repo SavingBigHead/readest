@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -18,6 +18,8 @@ function fixture(t, failUpload = false) {
     writeFileSync(path.join(directory, prefix + file), 'test installer');
     writeFileSync(path.join(directory, prefix + file + '.sig'), 'test-signature');
   }
+  writeFileSync(path.join(directory, prefix + 'linux-x64.deb'), 'test deb installer');
+  writeFileSync(path.join(directory, 'readest-personal-bin-0.12.16.personal.1-1-x86_64.pkg.tar.zst'), 'test Arch installer');
   writeFileSync(path.join(directory, prefix + 'source.tar.gz'), 'test source archive');
   writeFileSync(path.join(directory, 'release-notes.json'), '{"releases":{}}');
   const previous = {
@@ -74,10 +76,23 @@ test('release stays draft until every installer, signature and source asset is u
     assert.ok(manifest.platforms[platform].url.startsWith('https://github.com/SavingBigHead/readest/releases/download/personal-v0.12.16-r1/'));
   }
   assert.ok(readFileSync(path.join(directory, 'SHA256SUMS'), 'utf8').includes('source.tar.gz'));
+  assert.ok(readFileSync(path.join(directory, 'SHA256SUMS'), 'utf8').includes('readest-personal-bin-0.12.16.personal.1-1-x86_64.pkg.tar.zst'));
+  assert.ok(requests.some((request) => request.url.includes('name=readest-personal-bin-0.12.16.personal.1-1-x86_64.pkg.tar.zst')));
 });
 
 test('an asset upload failure never publishes the incomplete release', async (t) => {
   const { requests } = fixture(t, true);
   await assert.rejects(import('../publish.mjs?test=' + randomUUID()), /Asset upload failed/);
   assert.equal(requests.some((request) => request.method === 'PATCH'), false);
+});
+
+test('missing or empty Arch packages prevent any release upload', async (t) => {
+  const { directory, requests } = fixture(t);
+  const archFile = path.join(directory, 'readest-personal-bin-0.12.16.personal.1-1-x86_64.pkg.tar.zst');
+  unlinkSync(archFile);
+  await assert.rejects(import('../publish.mjs?test=' + randomUUID()), /ENOENT/);
+  assert.equal(requests.length, 0);
+  writeFileSync(archFile, '');
+  await assert.rejects(import('../publish.mjs?test=' + randomUUID()), /Empty installer/);
+  assert.equal(requests.length, 0);
 });

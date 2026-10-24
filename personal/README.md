@@ -1,6 +1,6 @@
 # Readest Personal
 
-适用于 SavingBigHead/readest 的自用构建，基于官方正式 Release，生成 Windows x64、Linux x64（AppImage / deb）和 Android ARM64 安装包。
+适用于 SavingBigHead/readest 的自用构建，基于官方正式 Release，生成 Windows x64、Linux x64（AppImage / deb / Arch pacman 包）和 Android ARM64 安装包。
 
 ## 功能范围
 
@@ -59,6 +59,20 @@
 登录官方账号连接的是原来的官方服务。OAuth 和应用链接会受到应用签名、回调地址和系统默认处理程序影响，修改版尚需实际设备验证；可先使用邮箱密码登录。原版和个人版同时安装时，`readest://` 回调可能需要系统选择应用。
 
 自动生成新安装包不等于设备会静默安装。Android 通常仍需确认安装；桌面更新要通过此 fork 的签名验证。Windows 安装包没有商业代码签名，可能显示发布者未知。
+
+## Arch Linux 安装
+
+Linux 构建会复用同一版 deb 中的原生程序和 CEF，额外生成 `readest-personal-bin-版本-1-x86_64.pkg.tar.zst`。Arch 版本号将 `-personal.` 转为 `.personal.`，例如应用 `0.12.16-personal.2` 对应包版本 `0.12.16.personal.2-1`。
+
+从 Release 下载后，安装和升级都使用：
+
+    sudo pacman -U ./readest-personal-bin-0.12.16.personal.2-1-x86_64.pkg.tar.zst
+
+菜单中启动 **Readest Personal**，或运行 `readest-personal`。程序、菜单和图标使用独立路径，包名为 `readest-personal-bin`；卸载可使用 `sudo pacman -Rns readest-personal-bin`。
+
+此包使用 pacman 管理更新，请下载新版包后再次运行 `pacman -U`，不要使用应用内安装更新功能。目前未提供 pacman 软件源或 AUR 包，因此 `pacman -Syu` 不会自动下载本 fork 的新版。文件选择器需要与你的桌面匹配的 XDG portal 后端；系统朗读可按需安装 `speech-dispatcher`。
+
+CI 在隔离 Arch 容器中实际构建、安装并卸载该包，检查共享库、菜单入口及文件完整性，再将安装包加入 Release 和 SHA256SUMS。这些检查不等于真实桌面中的阅读、账号或同步测试。
 
 ## 维护与验证
 

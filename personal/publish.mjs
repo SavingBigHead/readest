@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { githubAPI } from "./check-release.mjs";
+import { archPackageName } from "./prepare-arch.mjs";
 
 const directory = path.resolve(process.argv[2]);
 const metadata = JSON.parse(
@@ -13,6 +14,10 @@ const { repository, release_tag: tag, version } = metadata;
 const prefix = "Readest-Personal_" + version + "_";
 const baseURL =
 	"https://github.com/" + repository + "/releases/download/" + tag + "/";
+for (const file of [prefix + "linux-x64.deb", archPackageName(version)]) {
+	if (!readFileSync(path.join(directory, file)).length)
+		throw new Error("Empty installer: " + file);
+}
 const platforms = {};
 for (const [platform, file] of [
 	["windows-x86_64", prefix + "windows-x64.exe"],
@@ -83,8 +88,11 @@ if (!release) {
 				"Device customization, third-party sync, and user-provided translation/TTS endpoints are enabled.",
 				"Official account purchases, storage quotas, and paid server-service eligibility remain unchanged.",
 				"",
-				"Windows x64 · Linux x64 (AppImage / deb) · Android ARM64.",
+				"Windows x64 · Linux x64 (AppImage / deb / Arch pacman) · Android ARM64.",
 				"Android package: com.bilingify.readest.personal; it installs separately from the official app.",
+				"Arch: install or upgrade with sudo pacman -U ./" +
+					archPackageName(version) +
+					"; launch readest-personal. Updates for this package are managed by pacman.",
 				"",
 				"Build source, including submodules and the personal patch: " +
 					sourceArchive +

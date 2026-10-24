@@ -1,0 +1,50 @@
+# Generated from the exact Linux build; do not fetch a different release here.
+pkgname=readest-personal-bin
+pkgver=@PKGVER@
+pkgrel=1
+pkgdesc='Readest Personal ebook reader with user-provided sync, translation and TTS services'
+arch=('x86_64')
+url='https://github.com/SavingBigHead/readest'
+license=('AGPL-3.0-only')
+depends=(
+  'alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'fontconfig'
+  'gcc-libs' 'gdk-pixbuf2' 'glib2' 'glibc' 'gtk3' 'libcups' 'libpulse'
+  'libx11' 'libxcb' 'libxcomposite' 'libxdamage' 'libxext' 'libxfixes'
+  'libxkbcommon' 'libxkbcommon-x11' 'libxrandr' 'mesa' 'nspr' 'nss'
+  'pango' 'systemd-libs' 'xdg-desktop-portal' 'xdg-utils'
+)
+optdepends=(
+  'speech-dispatcher: system text-to-speech engine'
+  'xdg-desktop-portal-impl: file dialog backend for your desktop'
+)
+options=('!strip' '!debug')
+source=('readest-personal.deb' 'LICENSE')
+noextract=('readest-personal.deb')
+sha256sums=('@DEB_SHA256@' '@LICENSE_SHA256@')
+
+package() {
+  set -o pipefail
+  local data_archive app_dir desktop icon
+  data_archive=$(bsdtar -tf "$srcdir/readest-personal.deb" | grep -E '^data\.tar(\.(gz|xz|zst|bz2))?$')
+  [[ -n "$data_archive" && "$data_archive" != *$'\n'* ]] || return 1
+  bsdtar -xOf "$srcdir/readest-personal.deb" "$data_archive" | bsdtar -xf - -C "$pkgdir"
+
+  app_dir="$pkgdir/usr/share/Readest Personal"
+  desktop="$pkgdir/usr/share/applications/Readest Personal.desktop"
+  [[ -x "$app_dir/readest" && -f "$app_dir/libcef.so" && -f "$desktop" ]] || return 1
+  [[ -L "$pkgdir/usr/bin/readest" ]] || return 1
+  install -d "$pkgdir/usr/lib"
+  mv "$app_dir" "$pkgdir/usr/lib/readest-personal"
+  rm "$pkgdir/usr/bin/readest"
+  ln -s ../lib/readest-personal/readest "$pkgdir/usr/bin/readest-personal"
+  for icon in "$pkgdir"/usr/share/icons/hicolor/*/apps/readest.png; do
+    [[ -f "$icon" ]] || return 1
+    mv "$icon" "${icon%readest.png}readest-personal.png"
+  done
+  sed -i -e 's/^Exec=readest$/Exec=readest-personal %U/' \
+    -e 's/^Icon=readest$/Icon=readest-personal/' "$desktop"
+  grep -qx 'Exec=readest-personal %U' "$desktop"
+  grep -qx 'Icon=readest-personal' "$desktop"
+  mv "$desktop" "$pkgdir/usr/share/applications/readest-personal.desktop"
+  install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
