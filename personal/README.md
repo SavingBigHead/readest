@@ -17,6 +17,8 @@
 
 工作流：`.github/workflows/personal-release.yml`，名称 **Personal Readest releases**。
 
+不使用的 Docker 镜像发布和 Vercel 网页部署工作流已移至 `.github/disabled-workflows/`，GitHub 不再执行这两个流程，避免因缺少部署配置而发送失败通知。以后需要时，可将对应文件移回 `.github/workflows/` 并补齐配置。
+
 每 72 小时查询官方最新正式版（以 2026-10-25 08:00 北京时间为基准，每隔三天检查），也可在 Actions 手动运行。GitHub 每日唤醒轻量的时间判断任务，仅到期才查询上游；这样跨月也保持三天间隔。手动运行和代码推送不受定时间隔限制。GitHub 跨仓库 Release 事件不会直接触发 fork，因此新版本被发现会有检查间隔和构建耗时，定时任务也可能受 GitHub 调度延迟影响。
 
 每一版固定到官方发布提交，严格应用补丁，然后运行个人回归测试、上游单元测试及类型与 lint 检查。通过后构建三端。所有平台成功才公开 Release；补丁冲突、测试或构建失败会停止发布，并保留上一版。
