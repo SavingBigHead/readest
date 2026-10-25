@@ -17,7 +17,26 @@
 
 工作流：`.github/workflows/personal-release.yml`，名称 **Personal Readest releases**。
 
-不使用的 Docker 镜像发布和 Vercel 网页部署工作流已移至 `.github/disabled-workflows/`，GitHub 不再执行这两个流程，避免因缺少部署配置而发送失败通知。以后需要时，可将对应文件移回 `.github/workflows/` 并补齐配置。
+仅保留以下三个工作流：
+
+- **Personal Readest releases**：检查官方正式版，验证并构建 Windows、Linux（含 Arch 包）和 Android 个人版。
+- **PR checks**：保留代码检查与测试，移除不使用的 Nix 检查任务。
+- **CodeQL Advanced**：保留代码安全扫描。
+
+不使用的上游工作流已移至 `.github/disabled-workflows/`，GitHub 不再触发它们：
+
+| 工作流 | 停用原因 |
+| --- | --- |
+| Nightly Readest | 个人版只跟随正式 Release，无需每日多平台构建和官方 R2 上传 |
+| Release Readest | 已由个人版发布流程替代，且依赖官方发布配置 |
+| Upload Release Assets to R2 | 不使用官方 Cloudflare R2 发布渠道 |
+| Android E2E (CDP) | 不运行独立的每日 Android 模拟器测试 |
+| Try Linux AppImage | 个人版流程已生成 Linux 安装包，无需独立的手动测试构建 |
+| Build with Nix / Check Nix Dependency Hashes / Update Nix Dependencies | 使用安装包，无需维护 Nix 构建、缓存及依赖更新 |
+| Scorecard supply-chain security | 不维护上游项目的治理评分；代码安全扫描由 CodeQL 保留 |
+| Docker / Vercel | 不部署 Docker 镜像或 Vercel 网页，之前已停用 |
+
+停用文件保留原内容，以后需要时可将其移回 `.github/workflows/` 并补齐配置。已有运行记录会继续显示在 Actions 历史中。
 
 每 72 小时查询官方最新正式版（以 2026-10-25 08:00 北京时间为基准，每隔三天检查），也可在 Actions 手动运行。GitHub 每日唤醒轻量的时间判断任务，仅到期才查询上游；这样跨月也保持三天间隔。手动运行和代码推送不受定时间隔限制。GitHub 跨仓库 Release 事件不会直接触发 fork，因此新版本被发现会有检查间隔和构建耗时，定时任务也可能受 GitHub 调度延迟影响。
 
