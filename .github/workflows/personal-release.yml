@@ -3,7 +3,9 @@ name: Personal Readest releases
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *'
+    # Refresh the fork schedule registration; still wakes daily at 08:00 Beijing.
+    # The cadence job below limits upstream checks to every 72 hours.
+    - cron: '0 0 1-31 * *'
   push:
     branches: [main]
     paths:

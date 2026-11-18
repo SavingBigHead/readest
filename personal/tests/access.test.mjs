@@ -32,6 +32,7 @@ async function loadAccess(personal = false) {
 		},
 		"@/services/environment": { isWebAppPlatform: () => false },
 		"@/services/translators/utils": { getDailyUsage: () => 42 },
+		"@/services/translators/dailyUsage": { getDailyUsage: () => 42 },
 		"@/services/runtimeConfig": { getRuntimeConfig: () => null },
 	};
 	const module = new SourceTextModule(source, { context });
