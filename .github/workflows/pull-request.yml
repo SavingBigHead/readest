@@ -394,11 +394,9 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@ecabd13d1c56bd1345c230e542e9144811ad706f # v2.0.0
         with:
           toolchain: stable
-          # This action defaults RUSTFLAGS to -D warnings. Path-patched
-          # dependencies (packages/tauri, packages/swift-rs) build without
-          # cap-lints, so upstream warnings in them would fail the app
-          # build. Warnings in our own crate are enforced by the rust_lint
-          # job instead.
+          # v2 defaults Cargo's build.warnings to deny independently of RUSTFLAGS.
+          # Keep warnings visible in integration builds; rust_lint owns strict linting.
+          build-warnings: warn
           rustflags: ''
           # Disable this action's built-in rust-cache so the explicit
           # Swatinem/rust-cache below is the single cache (it's the one
