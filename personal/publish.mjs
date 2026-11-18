@@ -10,6 +10,8 @@ const metadata = JSON.parse(
 );
 if (metadata.repository !== process.env.GITHUB_REPOSITORY)
 	throw new Error("Repository mismatch");
+if (process.env.EXPECTED_CONTROLLER_SHA && metadata.controller_sha !== process.env.EXPECTED_CONTROLLER_SHA)
+  throw new Error("Artifacts do not match the verified source run");
 const { repository, release_tag: tag, version } = metadata;
 const prefix = "Readest-Personal_" + version + "_";
 const baseURL =
@@ -74,7 +76,7 @@ if (!release) {
 		method: "POST",
 		body: JSON.stringify({
 			tag_name: tag,
-			target_commitish: metadata.controller_sha,
+			target_commitish: "main",
 			name: "Readest Personal " + version,
 			draft: true,
 			prerelease: false,

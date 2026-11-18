@@ -31,8 +31,15 @@ export async function githubAPI(endpoint, options = {}) {
 		signal: AbortSignal.timeout(30000),
 	});
 	if (response.status === 404 && options.allowMissing) return null;
-	if (!response.ok)
-		throw new Error("GitHub " + response.status + ": " + endpoint);
+	if (!response.ok) {
+		const detail = await response.json().catch(() => ({}));
+		const permissions = response.headers.get("x-accepted-github-permissions");
+		throw new Error(
+			"GitHub " + response.status + " " + (options.method ?? "GET") + ": " + endpoint +
+			(typeof detail.message === "string" ? " — " + detail.message : "") +
+			(permissions ? " (required permissions: " + permissions + ")" : ""),
+		);
+	}
 	if (response.status === 204) return null;
 	return response.json();
 }

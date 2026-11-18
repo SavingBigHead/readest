@@ -2,6 +2,12 @@ name: Personal Readest releases
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_run_id:
+        description: 'Only retry publishing artifacts from a completed personal release run ID'
+        required: false
+        type: string
+        default: ''
   schedule:
     # Refresh the fork schedule registration; still wakes daily at 08:00 Beijing.
     # The cadence job below limits upstream checks to every 72 hours.
@@ -22,7 +28,7 @@ concurrency:
 
 jobs:
   cadence:
-    if: github.repository == 'SavingBigHead/readest'
+    if: github.repository == 'SavingBigHead/readest' && inputs.publish_run_id == ''
     runs-on: ubuntu-latest
     outputs:
       due: ${{ steps.cadence.outputs.due }}
@@ -344,17 +350,27 @@ jobs:
           retention-days: 14
 
   publish:
+    if: ${{ !cancelled() && (needs.build.result == 'success' || (github.event_name == 'workflow_dispatch' && inputs.publish_run_id != '')) }}
     needs: [check, prepare, verify, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
+      - name: Verify source run before reusing release artifacts
+        if: inputs.publish_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.publish_run_id }}
+        run: node personal/verify-publish-run.mjs "$SOURCE_RUN_ID"
       - uses: actions/download-artifact@v4
         with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.publish_run_id || github.run_id }}
           pattern: personal-*
           path: dist
           merge-multiple: true

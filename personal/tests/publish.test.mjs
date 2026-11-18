@@ -24,8 +24,9 @@ function fixture(t, failUpload = false) {
   writeFileSync(path.join(directory, 'release-notes.json'), '{"releases":{}}');
   const previous = {
     fetch: globalThis.fetch, log: console.log, argv: process.argv[2],
-    repo: process.env.GITHUB_REPOSITORY, token: process.env.GH_TOKEN,
+    repo: process.env.GITHUB_REPOSITORY, token: process.env.GH_TOKEN, expected: process.env.EXPECTED_CONTROLLER_SHA,
   };
+  delete process.env.EXPECTED_CONTROLLER_SHA;
   process.argv[2] = directory;
   process.env.GITHUB_REPOSITORY = 'SavingBigHead/readest';
   process.env.GH_TOKEN = 'unit-test-not-a-token';
@@ -52,6 +53,7 @@ function fixture(t, failUpload = false) {
     process.argv[2] = previous.argv;
     for (const [name, value] of [
       ['GITHUB_REPOSITORY', previous.repo], ['GH_TOKEN', previous.token],
+      ['EXPECTED_CONTROLLER_SHA', previous.expected],
     ]) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
@@ -66,6 +68,8 @@ test('release stays draft until every installer, signature and source asset is u
   await import('../publish.mjs?test=' + randomUUID());
   const created = requests.find((request) => request.method === 'POST' && !request.url.startsWith('https://uploads.'));
   assert.equal(JSON.parse(created.body).draft, true);
+  assert.equal(JSON.parse(created.body).target_commitish, 'main');
+  assert.ok(JSON.parse(created.body).body.includes('Build controller: ' + '1'.repeat(40)));
   const final = requests.at(-1);
   assert.equal(final.method, 'PATCH');
   assert.equal(JSON.parse(final.body).draft, false);
@@ -94,5 +98,11 @@ test('missing or empty Arch packages prevent any release upload', async (t) => {
   assert.equal(requests.length, 0);
   writeFileSync(archFile, '');
   await assert.rejects(import('../publish.mjs?test=' + randomUUID()), /Empty installer/);
+  assert.equal(requests.length, 0);
+});
+test('reused artifacts must match the controller commit of the verified run', async (t) => {
+  const { requests } = fixture(t);
+  process.env.EXPECTED_CONTROLLER_SHA = '2'.repeat(40);
+  await assert.rejects(import('../publish.mjs?test=' + randomUUID()), /Artifacts do not match/);
   assert.equal(requests.length, 0);
 });
